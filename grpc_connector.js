@@ -87,7 +87,7 @@ async function getTransaction(client, filter) {
     }); 
 }
 
-function getBlockRange(_start, _end) {
+function getBlockRange(client, _start, _end) {
     let blocks = [];
 
     const range = {

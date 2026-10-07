@@ -1,5 +1,6 @@
 const sequelize = require('./sequelize');
 const fs = require('fs');
+const { toSummary } = require('./lib/count');
 
 const dotenv = require('dotenv');
 const { join } = require('path');
@@ -9,18 +10,8 @@ dotenv.config();
 const dumpFilename = process.env.DUMP_FILE;
 
 const privacySetModel = sequelize.models.privacyset;
-privacySetModel.findAll().then((res) => {
-    const dataObj = res.map((el) => {
-        return {
-            height: el.height,
-            sapling: el.sapling,
-            sapling_filter: el.sapling_filter,
-            orchard: el.orchard,
-            orchard_filter: el.orchard_filter,
-            transactions: el.transactions,
-            transactions_filter: el.transactions_filter
-        }
-    });
+privacySetModel.findAll({ order: [['height', 'ASC']] }).then((res) => {
+    const dataObj = res.map((el) => toSummary(el));
 
     dataJson = JSON.stringify(dataObj, null, 2);  // Pretty-print with 2-space indentation
     fs.writeFile(dumpFilename, dataJson, (err) => {

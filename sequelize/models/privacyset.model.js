@@ -37,6 +37,18 @@ module.exports = (sequelize) => {
 			type: DataTypes.INTEGER,
 			allowNull: false,
 		},
+		// Ironwood transactions
+		ironwood: {
+			type: DataTypes.INTEGER,
+			allowNull: false,
+			defaultValue: 0,
+		},
+		// Ironwood transactions, spam filtered
+		ironwood_filter: {
+			type: DataTypes.INTEGER,
+			allowNull: false,
+			defaultValue: 0,
+		},
 		// Total number of transactions
 		transactions: {
 			type: DataTypes.INTEGER,

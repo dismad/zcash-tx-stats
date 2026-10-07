@@ -51,11 +51,14 @@ message CompactTx {
     repeated CompactSaplingSpend spends = 4;
     repeated CompactSaplingOutput outputs = 5;
     repeated CompactOrchardAction actions = 6;
+    // Field 9 matches lightwallet-protocol. Same encoding as Orchard actions.
+    repeated CompactOrchardAction ironwoodActions = 9;
 }
 
 message ChainMetadata {
     uint32 saplingCommitmentTreeSize = 1; // the size of the Sapling note commitment tree as of the end of this block
     uint32 orchardCommitmentTreeSize = 2; // the size of the Orchard note commitment tree as of the end of this block
+    uint32 ironwoodCommitmentTreeSize = 3; // the size of the Ironwood note commitment tree as of the end of this block
 }
 
 message AddressList {

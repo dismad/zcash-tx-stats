@@ -9,9 +9,15 @@ const lwd_uri = process.env.LWD_URI;
 const grpc = require('./grpc_connector');
 const lc = grpc.init(lwd_uri);
 
-const SAPLING_ACTIVATION = 419200;
-const ORCHARD_ACTIVATION = 1687104;
-const SYNC_PERIOD = 1152; // 1152 is roughly a day
+const {
+    SAPLING_ACTIVATION,
+    ORCHARD_ACTIVATION,
+    IRONWOOD_ACTIVATION,
+    SYNC_PERIOD,
+    emptyBucket,
+    accumulateTx,
+} = require('./lib/count');
+const RESYNC_FROM = process.env.RESYNC_FROM ? Number(process.env.RESYNC_FROM) : null;
 
 let dbSyncLock = false;
 
@@ -35,7 +41,10 @@ async function initDb() {
             order: [['height', 'DESC']] // Order by height in descending order
         });
 
-        if (dbHeight) {
+        if (RESYNC_FROM) {
+            console.log(`Resyncing from ${RESYNC_FROM} (Ironwood activation ${IRONWOOD_ACTIVATION})`);
+            syncTransactions(RESYNC_FROM, latestBlock.height, true);
+        } else if (dbHeight) {
             const lastDbHeight = dbHeight.dataValues.height;
       
             if(latestBlock.height - lastDbHeight > SYNC_PERIOD) {                
@@ -91,14 +100,8 @@ async function syncTransactions(start, end, writeDb) {
     // let actionsProcessed = 0;
     // let spendsProcessed = 0;
     // let outputsProcessed = 0;
-    let txProcessed = 0;
-    let txProcessedFilter = 0;
-    let saplingTx = 0;
-    let orchardTx = 0;
-    let saplingTxFilter = 0;
-    let orchardTxFilter = 0;
+    let bucket = emptyBucket();
 
-    spamFilterLimit = 50;
     const batchSize = 1000;
     let latestSynced = startHeight;
 
@@ -109,61 +112,25 @@ async function syncTransactions(start, end, writeDb) {
     while(latestSynced < endHeight) {
         const chunk = Math.min(latestSynced + batchSize, endHeight);
         try {
-            const blocks = await grpc.getBlockRange(latestSynced, chunk);                
+            const blocks = await grpc.getBlockRange(lc, latestSynced, chunk);                
             
             for(const block of blocks) {                          
-                for(const vtx of block.vtx) {                                                    
-                    let isSpam = false;
-                    let txCount = 0;
-                    if(vtx.actions.length > spamFilterLimit || vtx.outputs.length > spamFilterLimit) {
-                        // console.log(`Transaction is spam ...`);
-                        isSpam = true;
-                    } 
-
-                    if(block.height >= ORCHARD_ACTIVATION) {
-                        if(vtx.actions.length > 0) {
-                            // actionsProcessed += vtx.actions.length;
-                            orchardTx += 1;
-                            if(!isSpam) orchardTxFilter += 1;
-                            txCount += 0.5;
-                        }
-                    }
-
-                    if(vtx.outputs.length > 0 || vtx.spends.length > 0) {
-                        // outputsProcessed += vtx.outputs.length;                            
-                        saplingTx += 1
-                        if(!isSpam) saplingTxFilter += 1;
-                        txCount += 0.5;
-                    }
-                    
-                    // spendsProcessed += vtx.spends.length;
-
-                    txProcessed += Math.ceil(txCount);
-                    if(!isSpam) txProcessedFilter += Math.ceil(txCount);                   
+                for(const vtx of block.vtx) {
+                    accumulateTx(bucket, block.height, vtx);
                 }
 
                 // Save sum of transactions to database
                 if(block.height % SYNC_PERIOD == 0 && writeDb) {
-                    console.log(`Daily report tx total ${txProcessed} transactions\n`)
-                    try {                        
-                        await privacySetModel.create({
+                    console.log(`Daily report tx total ${bucket.transactions} transactions\n`)
+                    try {
+                        await upsertPrivacySet(privacySetModel, {
                             height: block.height,
-                            sapling: saplingTx,
-                            sapling_filter: saplingTxFilter,
-                            orchard: orchardTx,
-                            orchard_filter: orchardTxFilter,
-                            transactions: txProcessed,
-                            transactions_filter: txProcessedFilter
+                            ...bucket,
                         });
                     } catch(e) {
                         console.log(e)
-                    }     
-                    txProcessed = 0;
-                    txProcessedFilter = 0;
-                    saplingTx = 0;
-                    orchardTx = 0;
-                    saplingTxFilter = 0;
-                    orchardTxFilter = 0;           
+                    }
+                    bucket = emptyBucket();
                 }
             }
 
@@ -198,4 +165,9 @@ async function syncTransactions(start, end, writeDb) {
     //     transactions: txProcessed,
     //     transactions_filter: txProcessedFilter
     // }
+}
+async function upsertPrivacySet(model, row) {
+    const existing = await model.findOne({ where: { height: row.height } });
+    if (existing) return existing.update(row);
+    return model.create(row);
 }
